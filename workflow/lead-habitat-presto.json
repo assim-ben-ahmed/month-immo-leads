@@ -1,0 +1,972 @@
+{
+  "name": "Leads Habitat Presto → Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": []
+        },
+        "options": {}
+      },
+      "id": "90dea064-af2b-418e-9298-65d4acfb248e",
+      "name": "Gmail : label Habitat Presto",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmailHP01",
+          "name": "Gmail (Month'immo)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-habitat-presto",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "Lead reçu, traitement en cours."
+        }
+      },
+      "id": "7e6d352b-8a56-4870-8224-9bea48b92ee2",
+      "name": "Webhook (démo)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        220
+      ],
+      "webhookId": "88ce9f8d-f2e2-4a7a-8fa9-046118e5e199"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ramène les deux déclencheurs au même format : { subject, body, received_at, message_id, source }\nconst html = (h) => String(h || '').replace(/<style[\\s\\S]*?<\\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  if (j.body && typeof j.body === 'object') {\n    // Webhook de démo (send_test_lead.py)\n    const b = j.body;\n    return { json: {\n      subject: String(b.subject || ''),\n      body: String(b.body || ''),\n      received_at: b.received_at || new Date().toISOString(),\n      message_id: b.message_id || `webhook-${Date.now()}`,\n      source: 'Habitat Presto (test webhook)',\n    } };\n  }\n  // Gmail Trigger (option \"Simplify\" désactivée)\n  return { json: {\n    subject: String(j.subject || ''),\n    body: String(j.text || html(j.html) || j.snippet || ''),\n    received_at: j.date ? new Date(j.date).toISOString() : new Date().toISOString(),\n    message_id: j.id || j.messageId || `gmail-${Date.now()}`,\n    source: 'Habitat Presto (Gmail)',\n  } };\n});"
+      },
+      "id": "e3e52efe-da5a-4780-ba6a-9eeced26c904",
+      "name": "Entrée normalisée",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        110
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Objet du mail : {{ $json.subject }}\nReçu le : {{ $json.received_at }}\n\nCorps du mail :\n{{ $json.body }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Tu extrais les informations d'un mail de lead travaux envoyé par la plateforme Habitat Presto à Month'immo (rénovation, Saint-Étienne).\n\nRègles :\n- Recopie uniquement ce qui est écrit dans le mail. N'invente jamais rien. Si une information est absente, illisible ou « non communiquée », mets null.\n- nom : tel qu'écrit, avec la civilité si elle est présente (ex. Mme Claire D.).\n- telephone et email : tels qu'écrits. Une mention comme « à consulter dans votre espace » vaut null.\n- ville : la commune du chantier, sans code postal. code_postal : 5 chiffres s'il est écrit, sinon null. departement : numéro de département s'il est écrit, par exemple 42, sinon null.\n- type_travaux : une seule catégorie parmi : salle de bain, cuisine, toiture, isolation, rénovation complète, autre.\n- description : résumé fidèle des travaux demandés, en une phrase.\n- budget_min et budget_max : nombres en euros, sans espace ni symbole. « 8 000 à 12 000 € » donne 8000 et 12000. « environ 10 000 € » donne 10000 et 10000. « jusqu'à 12 000 € » ou « maximum 12 000 € » donne budget_min null et budget_max 12000.\n- delai_texte : le délai souhaité tel qu'écrit. delai_mois : nombre de mois entre la date de réception et le démarrage souhaité (« sous 3 mois » donne 3, « dès que possible » donne 0 ; pour une saison ou un mois, estime à partir de la date de réception) ; null s'il n'y a aucun délai.\n- Réponds uniquement avec l'objet JSON demandé."
+            }
+          ]
+        }
+      },
+      "id": "2f214f5e-3f46-4db1-bf4f-8ae8a2c9336a",
+      "name": "Extraction IA",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        480,
+        110
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "ministral-8b-latest",
+        "options": {
+          "temperature": 0,
+          "maxTokens": 1024,
+          "maxRetries": 3
+        }
+      },
+      "id": "1de4fd5b-163f-484c-8639-e6839fc23b45",
+      "name": "Modèle Mistral",
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        400,
+        340
+      ],
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "mistralLeadsHP01",
+          "name": "Mistral"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"nom\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Nom du particulier, avec civilité si présente\"\n    },\n    \"telephone\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Téléphone tel qu'écrit\"\n    },\n    \"email\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Email tel qu'écrit\"\n    },\n    \"ville\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Commune du chantier\"\n    },\n    \"code_postal\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Code postal à 5 chiffres\"\n    },\n    \"departement\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Numéro de département\"\n    },\n    \"type_travaux\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"salle de bain, cuisine, toiture, isolation, rénovation complète ou autre\"\n    },\n    \"description\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Résumé des travaux en une phrase\"\n    },\n    \"budget_min\": {\n      \"type\": [\n        \"number\",\n        \"null\"\n      ],\n      \"description\": \"Budget minimum en euros\"\n    },\n    \"budget_max\": {\n      \"type\": [\n        \"number\",\n        \"null\"\n      ],\n      \"description\": \"Budget maximum en euros\"\n    },\n    \"delai_texte\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Délai souhaité tel qu'écrit\"\n    },\n    \"delai_mois\": {\n      \"type\": [\n        \"number\",\n        \"null\"\n      ],\n      \"description\": \"Délai en mois depuis la réception\"\n    }\n  },\n  \"required\": [\n    \"nom\",\n    \"telephone\",\n    \"email\",\n    \"ville\",\n    \"code_postal\",\n    \"departement\",\n    \"type_travaux\",\n    \"description\",\n    \"budget_min\",\n    \"budget_max\",\n    \"delai_texte\",\n    \"delai_mois\"\n  ]\n}"
+      },
+      "id": "988c70ba-08eb-4a3a-b47a-678aceb5a510",
+      "name": "Format JSON strict",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        600,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nettoyage et contrôle des leads Habitat Presto.\n// Ce fichier est copié tel quel dans les nœuds Code \"Nettoyage\" et \"Détection des doublons\"\n// du workflow n8n (voir workflow/generer_workflow.py). Test : node src/nettoyage.test.js\n\nconst TYPES_TRAVAUX = ['salle de bain', 'cuisine', 'toiture', 'isolation', 'rénovation complète', 'autre'];\n\nfunction sansAccents(s) {\n  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');\n}\n\nfunction texte(v) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).replace(/\\s+/g, ' ').trim();\n  return s && !/^(null|n\\/a|non (renseigne|communique)e?s?|inconnue?)$/i.test(sansAccents(s)) ? s : null;\n}\n\n// \"06 12 34 56 78\", \"+33 (0)7 81 45 22 90\", \"0033612345678\" -> \"+33612345678\"\nfunction normaliserTelephone(v) {\n  const s = texte(v);\n  if (!s) return null;\n  let d = s.replace(/\\(0\\)/g, '').replace(/[^\\d+]/g, '');\n  if (d.startsWith('00')) d = '+' + d.slice(2);\n  if (/^0\\d{9}$/.test(d)) return '+33' + d.slice(1);\n  if (/^33\\d{9}$/.test(d)) return '+' + d;\n  if (/^\\+33\\d{9}$/.test(d)) return d;\n  if (/^\\+\\d{8,15}$/.test(d)) return d; // numéro étranger\n  return null;\n}\n\n// \"+33612345678\" -> \"+33 6 12 34 56 78\" (lisible dans le Sheet)\nfunction formaterTelephone(e164) {\n  if (!e164) return null;\n  const m = e164.match(/^\\+33(\\d)(\\d{2})(\\d{2})(\\d{2})(\\d{2})$/);\n  return m ? `+33 ${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]}` : e164;\n}\n\nfunction normaliserEmail(v) {\n  const s = texte(v);\n  if (!s) return null;\n  const e = s.toLowerCase().replace(/^mailto:/, '').replace(/\\s/g, '');\n  return /^[^@]+@[^@]+\\.[a-z]{2,}$/.test(e) ? e : null;\n}\n\n// 8000, \"8 000 €\", \"15k€\", \"12.000 euros\" -> nombre\nfunction parserBudget(v) {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? Math.round(v) : null;\n  let s = sansAccents(String(v)).toLowerCase().replace(/[\\s  ]|€|euros?/g, '');\n  let mult = 1;\n  if (/k$/.test(s)) { mult = 1000; s = s.slice(0, -1); }\n  if (/^\\d{1,3}(\\.\\d{3})+$/.test(s)) s = s.replace(/\\./g, '');\n  const n = parseFloat(s.replace(',', '.'));\n  return Number.isFinite(n) && n > 0 ? Math.round(n * mult) : null;\n}\n\n// \"sous 3 mois\" -> 3, \"dans 6 semaines\" -> 1.4, \"dès que possible\" -> 0\nfunction calculerDelaiMois(delaiTexte, valeurIA) {\n  const s = sansAccents(texte(delaiTexte) || '').toLowerCase();\n  if (/(des que possible|asap|urgent|immediat|au plus vite|tout de suite|rapidement)/.test(s)) return 0;\n  const unites = [[/mois/, 1], [/semaines?/, 1 / 4.33], [/jours?/, 1 / 30], [/(ans?|annees?)\\b/, 12]];\n  for (const [re, facteur] of unites) {\n    const m = s.match(new RegExp('((?:\\\\d+(?:[.,]\\\\d+)?\\\\s*(?:a|et|-|ou)\\\\s*)?\\\\d+(?:[.,]\\\\d+)?)\\\\s*' + re.source));\n    if (m) {\n      const nombres = m[1].match(/\\d+(?:[.,]\\d+)?/g).map((x) => parseFloat(x.replace(',', '.')));\n      return Math.round(Math.max(...nombres) * facteur * 10) / 10;\n    }\n  }\n  const n = typeof valeurIA === 'number' ? valeurIA : parseFloat(valeurIA);\n  return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null;\n}\n\nfunction categoriserTravaux(v, description) {\n  const s = sansAccents(`${texte(v) || ''}`).toLowerCase();\n  if (!s) return null;\n  const d = sansAccents(`${s} ${description || ''}`).toLowerCase();\n  if (/renovation (complete|totale|globale)|appartement complet|maison complete/.test(s)) return 'rénovation complète';\n  if (/salle (de|d'eau|d eau)|bain|douche/.test(s)) return 'salle de bain';\n  if (/cuisine/.test(s)) return 'cuisine';\n  if (/toit|couverture|zinguerie|charpente/.test(s)) return 'toiture';\n  if (/isol|combles/.test(s)) return 'isolation';\n  if (/renovation (complete|totale|globale)/.test(d)) return 'rénovation complète';\n  return 'autre';\n}\n\nfunction departementDepuis(codePostal, departement, ville) {\n  const cp = String(codePostal || '').match(/\\b(\\d{5})\\b/);\n  if (cp) return cp[1].startsWith('97') ? cp[1].slice(0, 3) : cp[1].slice(0, 2);\n  const dep = String(departement || '').match(/\\b(\\d{2,3}|2[ab])\\b/i) || String(ville || '').match(/\\((\\d{2,3})\\)/);\n  return dep ? dep[1].toUpperCase() : null;\n}\n\n// Identifiant stable : le même mail donne toujours le même ID.\nfunction genererLeadId(messageId, recuLe) {\n  const base = String(messageId || recuLe || Math.random());\n  let h = 5381;\n  for (const c of base) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0;\n  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;\n  h = Math.imul(h ^ (h >>> 13), 0x45d9f3b) >>> 0;\n  const jour = dateParis(recuLe).slice(0, 10).replace(/-/g, '');\n  return `HP-${jour}-${h.toString(36).toUpperCase().padStart(6, '0').slice(-6)}`;\n}\n\n// \"2026-10-29 14:05\" à l'heure de Paris (format reconnu comme date par Google Sheets)\nfunction dateParis(v) {\n  const d = v ? new Date(v) : new Date();\n  const ok = Number.isNaN(d.getTime()) ? new Date() : d;\n  return new Intl.DateTimeFormat('sv-SE', {\n    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',\n  }).format(ok).replace('T', ' ');\n}\n\nfunction ligneAlerte(type, lead, detail, mail) {\n  return {\n    Date: dateParis(),\n    Type: type,\n    'ID du lead': lead ? lead['ID'] : null,\n    Nom: lead ? lead['Nom'] : null,\n    'Détail': detail,\n    'Extrait du mail': mail ? `${mail.subject || ''}\\n\\n${mail.body || ''}`.slice(0, 5000) : null,\n    'ID du mail': mail ? mail.message_id : lead ? lead['ID du mail'] : null,\n  };\n}\n\n// extrait = sortie de l'IA, mail = { subject, body, received_at, message_id, source }\nfunction nettoyerLead(extrait, mail) {\n  const x = extrait || {};\n  const m = mail || {};\n  const tel = normaliserTelephone(x.telephone);\n  const email = normaliserEmail(x.email);\n  const description = texte(x.description);\n  const type = categoriserTravaux(x.type_travaux, description);\n  let bmin = parserBudget(x.budget_min);\n  let bmax = parserBudget(x.budget_max);\n  if (bmin && bmax && bmin > bmax) [bmin, bmax] = [bmax, bmin];\n  const delaiTexte = texte(x.delai_texte);\n  const nom = texte(x.nom);\n\n  const manquants = [];\n  if (!nom) manquants.push('nom');\n  if (!tel && !email) manquants.push('téléphone ou email');\n  if (!type) manquants.push('type de travaux');\n  const aPreciser = [];\n  if (!bmin && !bmax) aPreciser.push('budget');\n  if (!delaiTexte) aPreciser.push('délai');\n  if (!texte(x.ville)) aPreciser.push('ville');\n\n  const complet = manquants.length === 0;\n  const ligne = {\n    ID: genererLeadId(m.message_id, m.received_at),\n    'Date de réception': dateParis(m.received_at),\n    Nom: nom,\n    'Téléphone': formaterTelephone(tel),\n    Email: email,\n    Ville: texte(x.ville),\n    'Département': departementDepuis(x.code_postal, x.departement, x.ville),\n    'Type de travaux': type,\n    Description: description ? description.slice(0, 500) : null,\n    'Budget min (€)': bmin,\n    'Budget max (€)': bmax,\n    'Délai (texte)': delaiTexte,\n    'Délai (mois)': calculerDelaiMois(delaiTexte, x.delai_mois),\n    Statut: complet ? 'Nouveau' : 'À compléter',\n    Responsable: null,\n    'Date de 1er contact': null,\n    'Prochaine action': complet\n      ? 'Appeler sous 24 h' + (aPreciser.length ? ` (demander : ${aPreciser.join(', ')})` : '')\n      : `Compléter : ${manquants.join(', ')} (voir l'espace Habitat Presto)`,\n    'Nb de demandes': 1,\n    Source: m.source || 'Habitat Presto',\n    'ID du mail': m.message_id || null,\n    'Dernière demande': dateParis(m.received_at),\n  };\n  return {\n    ligne,\n    telephone_normalise: tel,\n    email_normalise: email,\n    complet,\n    champs_manquants: manquants,\n    alerte: complet ? null : ligneAlerte('Lead incomplet', ligne, `Champs manquants : ${manquants.join(', ')}`, m),\n  };\n}\n\n// Cherche une ligne existante avec le même téléphone ou le même email.\nfunction trouverDoublon(lead, lignes) {\n  for (const r of lignes || []) {\n    if (!r || !r['ID']) continue;\n    const tel = normaliserTelephone(r['Téléphone']);\n    const email = normaliserEmail(r['Email']);\n    if (lead.telephone_normalise && tel === lead.telephone_normalise) return { ligne: r, critere: 'téléphone' };\n    if (lead.email_normalise && email === lead.email_normalise) return { ligne: r, critere: 'email' };\n  }\n  return null;\n}\n\nif (typeof module !== 'undefined') {\n  module.exports = {\n    TYPES_TRAVAUX, normaliserTelephone, formaterTelephone, normaliserEmail, parserBudget, calculerDelaiMois,\n    categoriserTravaux, departementDepuis, genererLeadId, dateParis, ligneAlerte, nettoyerLead, trouverDoublon,\n  };\n}\n\n\n// ---------- Exécution dans n8n ----------\nconst entrees = $('Entrée normalisée').all();\nreturn $input.all().map((item, i) => {\n  let mail;\n  try { mail = $('Entrée normalisée').itemMatching(i).json; } catch (e) { mail = (entrees[i] || entrees[0]).json; }\n  return { json: { ...nettoyerLead(item.json.output, mail), mail }, pairedItem: i };\n});"
+      },
+      "id": "048731b2-987c-480e-b49c-bf4f5f305e10",
+      "name": "Nettoyage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "resource": "sheet",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "COLLER_ICI_L_ID_DU_GOOGLE_SHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "filtersUI": {},
+        "options": {}
+      },
+      "id": "4ee0e76d-5995-4b56-804f-d8d909d1e2fe",
+      "name": "Lire les leads existants",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1020,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "googleSheetsHP01",
+          "name": "Google Sheets (Month'immo)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nettoyage et contrôle des leads Habitat Presto.\n// Ce fichier est copié tel quel dans les nœuds Code \"Nettoyage\" et \"Détection des doublons\"\n// du workflow n8n (voir workflow/generer_workflow.py). Test : node src/nettoyage.test.js\n\nconst TYPES_TRAVAUX = ['salle de bain', 'cuisine', 'toiture', 'isolation', 'rénovation complète', 'autre'];\n\nfunction sansAccents(s) {\n  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');\n}\n\nfunction texte(v) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).replace(/\\s+/g, ' ').trim();\n  return s && !/^(null|n\\/a|non (renseigne|communique)e?s?|inconnue?)$/i.test(sansAccents(s)) ? s : null;\n}\n\n// \"06 12 34 56 78\", \"+33 (0)7 81 45 22 90\", \"0033612345678\" -> \"+33612345678\"\nfunction normaliserTelephone(v) {\n  const s = texte(v);\n  if (!s) return null;\n  let d = s.replace(/\\(0\\)/g, '').replace(/[^\\d+]/g, '');\n  if (d.startsWith('00')) d = '+' + d.slice(2);\n  if (/^0\\d{9}$/.test(d)) return '+33' + d.slice(1);\n  if (/^33\\d{9}$/.test(d)) return '+' + d;\n  if (/^\\+33\\d{9}$/.test(d)) return d;\n  if (/^\\+\\d{8,15}$/.test(d)) return d; // numéro étranger\n  return null;\n}\n\n// \"+33612345678\" -> \"+33 6 12 34 56 78\" (lisible dans le Sheet)\nfunction formaterTelephone(e164) {\n  if (!e164) return null;\n  const m = e164.match(/^\\+33(\\d)(\\d{2})(\\d{2})(\\d{2})(\\d{2})$/);\n  return m ? `+33 ${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]}` : e164;\n}\n\nfunction normaliserEmail(v) {\n  const s = texte(v);\n  if (!s) return null;\n  const e = s.toLowerCase().replace(/^mailto:/, '').replace(/\\s/g, '');\n  return /^[^@]+@[^@]+\\.[a-z]{2,}$/.test(e) ? e : null;\n}\n\n// 8000, \"8 000 €\", \"15k€\", \"12.000 euros\" -> nombre\nfunction parserBudget(v) {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? Math.round(v) : null;\n  let s = sansAccents(String(v)).toLowerCase().replace(/[\\s  ]|€|euros?/g, '');\n  let mult = 1;\n  if (/k$/.test(s)) { mult = 1000; s = s.slice(0, -1); }\n  if (/^\\d{1,3}(\\.\\d{3})+$/.test(s)) s = s.replace(/\\./g, '');\n  const n = parseFloat(s.replace(',', '.'));\n  return Number.isFinite(n) && n > 0 ? Math.round(n * mult) : null;\n}\n\n// \"sous 3 mois\" -> 3, \"dans 6 semaines\" -> 1.4, \"dès que possible\" -> 0\nfunction calculerDelaiMois(delaiTexte, valeurIA) {\n  const s = sansAccents(texte(delaiTexte) || '').toLowerCase();\n  if (/(des que possible|asap|urgent|immediat|au plus vite|tout de suite|rapidement)/.test(s)) return 0;\n  const unites = [[/mois/, 1], [/semaines?/, 1 / 4.33], [/jours?/, 1 / 30], [/(ans?|annees?)\\b/, 12]];\n  for (const [re, facteur] of unites) {\n    const m = s.match(new RegExp('((?:\\\\d+(?:[.,]\\\\d+)?\\\\s*(?:a|et|-|ou)\\\\s*)?\\\\d+(?:[.,]\\\\d+)?)\\\\s*' + re.source));\n    if (m) {\n      const nombres = m[1].match(/\\d+(?:[.,]\\d+)?/g).map((x) => parseFloat(x.replace(',', '.')));\n      return Math.round(Math.max(...nombres) * facteur * 10) / 10;\n    }\n  }\n  const n = typeof valeurIA === 'number' ? valeurIA : parseFloat(valeurIA);\n  return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null;\n}\n\nfunction categoriserTravaux(v, description) {\n  const s = sansAccents(`${texte(v) || ''}`).toLowerCase();\n  if (!s) return null;\n  const d = sansAccents(`${s} ${description || ''}`).toLowerCase();\n  if (/renovation (complete|totale|globale)|appartement complet|maison complete/.test(s)) return 'rénovation complète';\n  if (/salle (de|d'eau|d eau)|bain|douche/.test(s)) return 'salle de bain';\n  if (/cuisine/.test(s)) return 'cuisine';\n  if (/toit|couverture|zinguerie|charpente/.test(s)) return 'toiture';\n  if (/isol|combles/.test(s)) return 'isolation';\n  if (/renovation (complete|totale|globale)/.test(d)) return 'rénovation complète';\n  return 'autre';\n}\n\nfunction departementDepuis(codePostal, departement, ville) {\n  const cp = String(codePostal || '').match(/\\b(\\d{5})\\b/);\n  if (cp) return cp[1].startsWith('97') ? cp[1].slice(0, 3) : cp[1].slice(0, 2);\n  const dep = String(departement || '').match(/\\b(\\d{2,3}|2[ab])\\b/i) || String(ville || '').match(/\\((\\d{2,3})\\)/);\n  return dep ? dep[1].toUpperCase() : null;\n}\n\n// Identifiant stable : le même mail donne toujours le même ID.\nfunction genererLeadId(messageId, recuLe) {\n  const base = String(messageId || recuLe || Math.random());\n  let h = 5381;\n  for (const c of base) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0;\n  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;\n  h = Math.imul(h ^ (h >>> 13), 0x45d9f3b) >>> 0;\n  const jour = dateParis(recuLe).slice(0, 10).replace(/-/g, '');\n  return `HP-${jour}-${h.toString(36).toUpperCase().padStart(6, '0').slice(-6)}`;\n}\n\n// \"2026-10-29 14:05\" à l'heure de Paris (format reconnu comme date par Google Sheets)\nfunction dateParis(v) {\n  const d = v ? new Date(v) : new Date();\n  const ok = Number.isNaN(d.getTime()) ? new Date() : d;\n  return new Intl.DateTimeFormat('sv-SE', {\n    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',\n  }).format(ok).replace('T', ' ');\n}\n\nfunction ligneAlerte(type, lead, detail, mail) {\n  return {\n    Date: dateParis(),\n    Type: type,\n    'ID du lead': lead ? lead['ID'] : null,\n    Nom: lead ? lead['Nom'] : null,\n    'Détail': detail,\n    'Extrait du mail': mail ? `${mail.subject || ''}\\n\\n${mail.body || ''}`.slice(0, 5000) : null,\n    'ID du mail': mail ? mail.message_id : lead ? lead['ID du mail'] : null,\n  };\n}\n\n// extrait = sortie de l'IA, mail = { subject, body, received_at, message_id, source }\nfunction nettoyerLead(extrait, mail) {\n  const x = extrait || {};\n  const m = mail || {};\n  const tel = normaliserTelephone(x.telephone);\n  const email = normaliserEmail(x.email);\n  const description = texte(x.description);\n  const type = categoriserTravaux(x.type_travaux, description);\n  let bmin = parserBudget(x.budget_min);\n  let bmax = parserBudget(x.budget_max);\n  if (bmin && bmax && bmin > bmax) [bmin, bmax] = [bmax, bmin];\n  const delaiTexte = texte(x.delai_texte);\n  const nom = texte(x.nom);\n\n  const manquants = [];\n  if (!nom) manquants.push('nom');\n  if (!tel && !email) manquants.push('téléphone ou email');\n  if (!type) manquants.push('type de travaux');\n  const aPreciser = [];\n  if (!bmin && !bmax) aPreciser.push('budget');\n  if (!delaiTexte) aPreciser.push('délai');\n  if (!texte(x.ville)) aPreciser.push('ville');\n\n  const complet = manquants.length === 0;\n  const ligne = {\n    ID: genererLeadId(m.message_id, m.received_at),\n    'Date de réception': dateParis(m.received_at),\n    Nom: nom,\n    'Téléphone': formaterTelephone(tel),\n    Email: email,\n    Ville: texte(x.ville),\n    'Département': departementDepuis(x.code_postal, x.departement, x.ville),\n    'Type de travaux': type,\n    Description: description ? description.slice(0, 500) : null,\n    'Budget min (€)': bmin,\n    'Budget max (€)': bmax,\n    'Délai (texte)': delaiTexte,\n    'Délai (mois)': calculerDelaiMois(delaiTexte, x.delai_mois),\n    Statut: complet ? 'Nouveau' : 'À compléter',\n    Responsable: null,\n    'Date de 1er contact': null,\n    'Prochaine action': complet\n      ? 'Appeler sous 24 h' + (aPreciser.length ? ` (demander : ${aPreciser.join(', ')})` : '')\n      : `Compléter : ${manquants.join(', ')} (voir l'espace Habitat Presto)`,\n    'Nb de demandes': 1,\n    Source: m.source || 'Habitat Presto',\n    'ID du mail': m.message_id || null,\n    'Dernière demande': dateParis(m.received_at),\n  };\n  return {\n    ligne,\n    telephone_normalise: tel,\n    email_normalise: email,\n    complet,\n    champs_manquants: manquants,\n    alerte: complet ? null : ligneAlerte('Lead incomplet', ligne, `Champs manquants : ${manquants.join(', ')}`, m),\n  };\n}\n\n// Cherche une ligne existante avec le même téléphone ou le même email.\nfunction trouverDoublon(lead, lignes) {\n  for (const r of lignes || []) {\n    if (!r || !r['ID']) continue;\n    const tel = normaliserTelephone(r['Téléphone']);\n    const email = normaliserEmail(r['Email']);\n    if (lead.telephone_normalise && tel === lead.telephone_normalise) return { ligne: r, critere: 'téléphone' };\n    if (lead.email_normalise && email === lead.email_normalise) return { ligne: r, critere: 'email' };\n  }\n  return null;\n}\n\nif (typeof module !== 'undefined') {\n  module.exports = {\n    TYPES_TRAVAUX, normaliserTelephone, formaterTelephone, normaliserEmail, parserBudget, calculerDelaiMois,\n    categoriserTravaux, departementDepuis, genererLeadId, dateParis, ligneAlerte, nettoyerLead, trouverDoublon,\n  };\n}\n\n\n// ---------- Exécution dans n8n ----------\n// Entrée : toutes les lignes du Sheet (lu une seule fois). Les leads viennent du nœud Nettoyage.\nconst lignes = $input.all().map((i) => i.json).filter((r) => r && r.ID);\nreturn $('Nettoyage').all().map((item, i) => {\n  const lead = item.json;\n  const trouve = trouverDoublon(lead, lignes);\n  if (!trouve) {\n    lignes.push({ ...lead.ligne }); // un 2e mail identique dans le même lot sera aussi vu comme doublon\n    return { json: { ...lead, doublon: false }, pairedItem: 0 };\n  }\n  const existante = trouve.ligne;\n  const nb = (parseInt(existante['Nb de demandes'], 10) || 1) + 1;\n  existante['Nb de demandes'] = nb;\n  return { json: {\n    ...lead,\n    doublon: true,\n    maj: { ID: existante.ID, 'Nb de demandes': nb, 'Dernière demande': lead.ligne['Dernière demande'] },\n    alerte: ligneAlerte('Doublon', { ...lead.ligne, ID: existante.ID },\n      `Même ${trouve.critere} que ${existante.ID} : pas de nouvelle ligne, ${nb}e demande enregistrée.`, lead.mail),\n  }, pairedItem: 0 };\n});"
+      },
+      "id": "6badb056-25f6-4f80-a3d2-734b167dfda7",
+      "name": "Détection des doublons",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b33fb8d5-7b26-4a77-a5a3-81b668d2cd51",
+              "leftValue": "={{ $json.doublon }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1ba79bca-a5d1-4ef0-9299-d64ad8ac70dc",
+      "name": "Doublon ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "resource": "sheet",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "COLLER_ICI_L_ID_DU_GOOGLE_SHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.maj[\"ID\"] ?? '' }}",
+            "Nb de demandes": "={{ $json.maj[\"Nb de demandes\"] ?? '' }}",
+            "Dernière demande": "={{ $json.maj[\"Dernière demande\"] ?? '' }}"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nb de demandes",
+              "displayName": "Nb de demandes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Dernière demande",
+              "displayName": "Dernière demande",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "d0c64f84-af93-4fc5-926c-c05031d264fb",
+      "name": "Mettre à jour le lead existant",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1720,
+        -160
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "googleSheetsHP01",
+          "name": "Google Sheets (Month'immo)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "resource": "sheet",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "COLLER_ICI_L_ID_DU_GOOGLE_SHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.ligne[\"ID\"] == null || $json.ligne[\"ID\"] === '' ? '' : \"'\" + $json.ligne[\"ID\"] }}",
+            "Date de réception": "={{ $json.ligne[\"Date de réception\"] ?? '' }}",
+            "Nom": "={{ $json.ligne[\"Nom\"] == null || $json.ligne[\"Nom\"] === '' ? '' : \"'\" + $json.ligne[\"Nom\"] }}",
+            "Téléphone": "={{ $json.ligne[\"Téléphone\"] == null || $json.ligne[\"Téléphone\"] === '' ? '' : \"'\" + $json.ligne[\"Téléphone\"] }}",
+            "Email": "={{ $json.ligne[\"Email\"] == null || $json.ligne[\"Email\"] === '' ? '' : \"'\" + $json.ligne[\"Email\"] }}",
+            "Ville": "={{ $json.ligne[\"Ville\"] == null || $json.ligne[\"Ville\"] === '' ? '' : \"'\" + $json.ligne[\"Ville\"] }}",
+            "Département": "={{ $json.ligne[\"Département\"] == null || $json.ligne[\"Département\"] === '' ? '' : \"'\" + $json.ligne[\"Département\"] }}",
+            "Type de travaux": "={{ $json.ligne[\"Type de travaux\"] == null || $json.ligne[\"Type de travaux\"] === '' ? '' : \"'\" + $json.ligne[\"Type de travaux\"] }}",
+            "Description": "={{ $json.ligne[\"Description\"] == null || $json.ligne[\"Description\"] === '' ? '' : \"'\" + $json.ligne[\"Description\"] }}",
+            "Budget min (€)": "={{ $json.ligne[\"Budget min (€)\"] ?? '' }}",
+            "Budget max (€)": "={{ $json.ligne[\"Budget max (€)\"] ?? '' }}",
+            "Délai (texte)": "={{ $json.ligne[\"Délai (texte)\"] == null || $json.ligne[\"Délai (texte)\"] === '' ? '' : \"'\" + $json.ligne[\"Délai (texte)\"] }}",
+            "Délai (mois)": "={{ $json.ligne[\"Délai (mois)\"] ?? '' }}",
+            "Statut": "={{ $json.ligne[\"Statut\"] == null || $json.ligne[\"Statut\"] === '' ? '' : \"'\" + $json.ligne[\"Statut\"] }}",
+            "Responsable": "={{ $json.ligne[\"Responsable\"] == null || $json.ligne[\"Responsable\"] === '' ? '' : \"'\" + $json.ligne[\"Responsable\"] }}",
+            "Date de 1er contact": "={{ $json.ligne[\"Date de 1er contact\"] == null || $json.ligne[\"Date de 1er contact\"] === '' ? '' : \"'\" + $json.ligne[\"Date de 1er contact\"] }}",
+            "Prochaine action": "={{ $json.ligne[\"Prochaine action\"] == null || $json.ligne[\"Prochaine action\"] === '' ? '' : \"'\" + $json.ligne[\"Prochaine action\"] }}",
+            "Nb de demandes": "={{ $json.ligne[\"Nb de demandes\"] ?? '' }}",
+            "Source": "={{ $json.ligne[\"Source\"] == null || $json.ligne[\"Source\"] === '' ? '' : \"'\" + $json.ligne[\"Source\"] }}",
+            "ID du mail": "={{ $json.ligne[\"ID du mail\"] == null || $json.ligne[\"ID du mail\"] === '' ? '' : \"'\" + $json.ligne[\"ID du mail\"] }}",
+            "Dernière demande": "={{ $json.ligne[\"Dernière demande\"] ?? '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date de réception",
+              "displayName": "Date de réception",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nom",
+              "displayName": "Nom",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Téléphone",
+              "displayName": "Téléphone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Ville",
+              "displayName": "Ville",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Département",
+              "displayName": "Département",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type de travaux",
+              "displayName": "Type de travaux",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget min (€)",
+              "displayName": "Budget min (€)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget max (€)",
+              "displayName": "Budget max (€)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Délai (texte)",
+              "displayName": "Délai (texte)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Délai (mois)",
+              "displayName": "Délai (mois)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Statut",
+              "displayName": "Statut",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Responsable",
+              "displayName": "Responsable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date de 1er contact",
+              "displayName": "Date de 1er contact",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Prochaine action",
+              "displayName": "Prochaine action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nb de demandes",
+              "displayName": "Nb de demandes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ID du mail",
+              "displayName": "ID du mail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Dernière demande",
+              "displayName": "Dernière demande",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "d259cb1e-212d-43ca-ae65-77bbb22993de",
+      "name": "Ajouter le lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1720,
+        80
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "googleSheetsHP01",
+          "name": "Google Sheets (Month'immo)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3bc3586f-5862-422b-a2e4-889cba16ee49",
+              "leftValue": "={{ $json.complet }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c0f5cc4-6f28-450e-82d0-8af8ae8a2935",
+      "name": "Incomplet ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nettoyage et contrôle des leads Habitat Presto.\n// Ce fichier est copié tel quel dans les nœuds Code \"Nettoyage\" et \"Détection des doublons\"\n// du workflow n8n (voir workflow/generer_workflow.py). Test : node src/nettoyage.test.js\n\nconst TYPES_TRAVAUX = ['salle de bain', 'cuisine', 'toiture', 'isolation', 'rénovation complète', 'autre'];\n\nfunction sansAccents(s) {\n  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');\n}\n\nfunction texte(v) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).replace(/\\s+/g, ' ').trim();\n  return s && !/^(null|n\\/a|non (renseigne|communique)e?s?|inconnue?)$/i.test(sansAccents(s)) ? s : null;\n}\n\n// \"06 12 34 56 78\", \"+33 (0)7 81 45 22 90\", \"0033612345678\" -> \"+33612345678\"\nfunction normaliserTelephone(v) {\n  const s = texte(v);\n  if (!s) return null;\n  let d = s.replace(/\\(0\\)/g, '').replace(/[^\\d+]/g, '');\n  if (d.startsWith('00')) d = '+' + d.slice(2);\n  if (/^0\\d{9}$/.test(d)) return '+33' + d.slice(1);\n  if (/^33\\d{9}$/.test(d)) return '+' + d;\n  if (/^\\+33\\d{9}$/.test(d)) return d;\n  if (/^\\+\\d{8,15}$/.test(d)) return d; // numéro étranger\n  return null;\n}\n\n// \"+33612345678\" -> \"+33 6 12 34 56 78\" (lisible dans le Sheet)\nfunction formaterTelephone(e164) {\n  if (!e164) return null;\n  const m = e164.match(/^\\+33(\\d)(\\d{2})(\\d{2})(\\d{2})(\\d{2})$/);\n  return m ? `+33 ${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]}` : e164;\n}\n\nfunction normaliserEmail(v) {\n  const s = texte(v);\n  if (!s) return null;\n  const e = s.toLowerCase().replace(/^mailto:/, '').replace(/\\s/g, '');\n  return /^[^@]+@[^@]+\\.[a-z]{2,}$/.test(e) ? e : null;\n}\n\n// 8000, \"8 000 €\", \"15k€\", \"12.000 euros\" -> nombre\nfunction parserBudget(v) {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? Math.round(v) : null;\n  let s = sansAccents(String(v)).toLowerCase().replace(/[\\s  ]|€|euros?/g, '');\n  let mult = 1;\n  if (/k$/.test(s)) { mult = 1000; s = s.slice(0, -1); }\n  if (/^\\d{1,3}(\\.\\d{3})+$/.test(s)) s = s.replace(/\\./g, '');\n  const n = parseFloat(s.replace(',', '.'));\n  return Number.isFinite(n) && n > 0 ? Math.round(n * mult) : null;\n}\n\n// \"sous 3 mois\" -> 3, \"dans 6 semaines\" -> 1.4, \"dès que possible\" -> 0\nfunction calculerDelaiMois(delaiTexte, valeurIA) {\n  const s = sansAccents(texte(delaiTexte) || '').toLowerCase();\n  if (/(des que possible|asap|urgent|immediat|au plus vite|tout de suite|rapidement)/.test(s)) return 0;\n  const unites = [[/mois/, 1], [/semaines?/, 1 / 4.33], [/jours?/, 1 / 30], [/(ans?|annees?)\\b/, 12]];\n  for (const [re, facteur] of unites) {\n    const m = s.match(new RegExp('((?:\\\\d+(?:[.,]\\\\d+)?\\\\s*(?:a|et|-|ou)\\\\s*)?\\\\d+(?:[.,]\\\\d+)?)\\\\s*' + re.source));\n    if (m) {\n      const nombres = m[1].match(/\\d+(?:[.,]\\d+)?/g).map((x) => parseFloat(x.replace(',', '.')));\n      return Math.round(Math.max(...nombres) * facteur * 10) / 10;\n    }\n  }\n  const n = typeof valeurIA === 'number' ? valeurIA : parseFloat(valeurIA);\n  return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null;\n}\n\nfunction categoriserTravaux(v, description) {\n  const s = sansAccents(`${texte(v) || ''}`).toLowerCase();\n  if (!s) return null;\n  const d = sansAccents(`${s} ${description || ''}`).toLowerCase();\n  if (/renovation (complete|totale|globale)|appartement complet|maison complete/.test(s)) return 'rénovation complète';\n  if (/salle (de|d'eau|d eau)|bain|douche/.test(s)) return 'salle de bain';\n  if (/cuisine/.test(s)) return 'cuisine';\n  if (/toit|couverture|zinguerie|charpente/.test(s)) return 'toiture';\n  if (/isol|combles/.test(s)) return 'isolation';\n  if (/renovation (complete|totale|globale)/.test(d)) return 'rénovation complète';\n  return 'autre';\n}\n\nfunction departementDepuis(codePostal, departement, ville) {\n  const cp = String(codePostal || '').match(/\\b(\\d{5})\\b/);\n  if (cp) return cp[1].startsWith('97') ? cp[1].slice(0, 3) : cp[1].slice(0, 2);\n  const dep = String(departement || '').match(/\\b(\\d{2,3}|2[ab])\\b/i) || String(ville || '').match(/\\((\\d{2,3})\\)/);\n  return dep ? dep[1].toUpperCase() : null;\n}\n\n// Identifiant stable : le même mail donne toujours le même ID.\nfunction genererLeadId(messageId, recuLe) {\n  const base = String(messageId || recuLe || Math.random());\n  let h = 5381;\n  for (const c of base) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0;\n  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;\n  h = Math.imul(h ^ (h >>> 13), 0x45d9f3b) >>> 0;\n  const jour = dateParis(recuLe).slice(0, 10).replace(/-/g, '');\n  return `HP-${jour}-${h.toString(36).toUpperCase().padStart(6, '0').slice(-6)}`;\n}\n\n// \"2026-10-29 14:05\" à l'heure de Paris (format reconnu comme date par Google Sheets)\nfunction dateParis(v) {\n  const d = v ? new Date(v) : new Date();\n  const ok = Number.isNaN(d.getTime()) ? new Date() : d;\n  return new Intl.DateTimeFormat('sv-SE', {\n    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',\n  }).format(ok).replace('T', ' ');\n}\n\nfunction ligneAlerte(type, lead, detail, mail) {\n  return {\n    Date: dateParis(),\n    Type: type,\n    'ID du lead': lead ? lead['ID'] : null,\n    Nom: lead ? lead['Nom'] : null,\n    'Détail': detail,\n    'Extrait du mail': mail ? `${mail.subject || ''}\\n\\n${mail.body || ''}`.slice(0, 5000) : null,\n    'ID du mail': mail ? mail.message_id : lead ? lead['ID du mail'] : null,\n  };\n}\n\n// extrait = sortie de l'IA, mail = { subject, body, received_at, message_id, source }\nfunction nettoyerLead(extrait, mail) {\n  const x = extrait || {};\n  const m = mail || {};\n  const tel = normaliserTelephone(x.telephone);\n  const email = normaliserEmail(x.email);\n  const description = texte(x.description);\n  const type = categoriserTravaux(x.type_travaux, description);\n  let bmin = parserBudget(x.budget_min);\n  let bmax = parserBudget(x.budget_max);\n  if (bmin && bmax && bmin > bmax) [bmin, bmax] = [bmax, bmin];\n  const delaiTexte = texte(x.delai_texte);\n  const nom = texte(x.nom);\n\n  const manquants = [];\n  if (!nom) manquants.push('nom');\n  if (!tel && !email) manquants.push('téléphone ou email');\n  if (!type) manquants.push('type de travaux');\n  const aPreciser = [];\n  if (!bmin && !bmax) aPreciser.push('budget');\n  if (!delaiTexte) aPreciser.push('délai');\n  if (!texte(x.ville)) aPreciser.push('ville');\n\n  const complet = manquants.length === 0;\n  const ligne = {\n    ID: genererLeadId(m.message_id, m.received_at),\n    'Date de réception': dateParis(m.received_at),\n    Nom: nom,\n    'Téléphone': formaterTelephone(tel),\n    Email: email,\n    Ville: texte(x.ville),\n    'Département': departementDepuis(x.code_postal, x.departement, x.ville),\n    'Type de travaux': type,\n    Description: description ? description.slice(0, 500) : null,\n    'Budget min (€)': bmin,\n    'Budget max (€)': bmax,\n    'Délai (texte)': delaiTexte,\n    'Délai (mois)': calculerDelaiMois(delaiTexte, x.delai_mois),\n    Statut: complet ? 'Nouveau' : 'À compléter',\n    Responsable: null,\n    'Date de 1er contact': null,\n    'Prochaine action': complet\n      ? 'Appeler sous 24 h' + (aPreciser.length ? ` (demander : ${aPreciser.join(', ')})` : '')\n      : `Compléter : ${manquants.join(', ')} (voir l'espace Habitat Presto)`,\n    'Nb de demandes': 1,\n    Source: m.source || 'Habitat Presto',\n    'ID du mail': m.message_id || null,\n    'Dernière demande': dateParis(m.received_at),\n  };\n  return {\n    ligne,\n    telephone_normalise: tel,\n    email_normalise: email,\n    complet,\n    champs_manquants: manquants,\n    alerte: complet ? null : ligneAlerte('Lead incomplet', ligne, `Champs manquants : ${manquants.join(', ')}`, m),\n  };\n}\n\n// Cherche une ligne existante avec le même téléphone ou le même email.\nfunction trouverDoublon(lead, lignes) {\n  for (const r of lignes || []) {\n    if (!r || !r['ID']) continue;\n    const tel = normaliserTelephone(r['Téléphone']);\n    const email = normaliserEmail(r['Email']);\n    if (lead.telephone_normalise && tel === lead.telephone_normalise) return { ligne: r, critere: 'téléphone' };\n    if (lead.email_normalise && email === lead.email_normalise) return { ligne: r, critere: 'email' };\n  }\n  return null;\n}\n\nif (typeof module !== 'undefined') {\n  module.exports = {\n    TYPES_TRAVAUX, normaliserTelephone, formaterTelephone, normaliserEmail, parserBudget, calculerDelaiMois,\n    categoriserTravaux, departementDepuis, genererLeadId, dateParis, ligneAlerte, nettoyerLead, trouverDoublon,\n  };\n}\n\n\n// ---------- Exécution dans n8n ----------\n// L'IA a échoué deux fois (ou a renvoyé un JSON invalide) : on garde le mail brut dans Alertes.\nconst entrees = $('Entrée normalisée').all();\nreturn $input.all().map((item, i) => {\n  let mail;\n  try { mail = $('Entrée normalisée').itemMatching(i).json; } catch (e) { mail = (entrees[i] || entrees[0] || { json: {} }).json; }\n  const erreur = item.json.error ? (item.json.error.message || item.json.error) : JSON.stringify(item.json);\n  return { json: { alerte: ligneAlerte('Erreur IA', null, `Extraction impossible après 2 essais : ${String(erreur).slice(0, 300)}. Lead à saisir à la main.`, mail) } };\n});"
+      },
+      "id": "666e0159-3a75-4cbb-b0ae-3c036cf12459",
+      "name": "Préparer l'alerte erreur IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "resource": "sheet",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "COLLER_ICI_L_ID_DU_GOOGLE_SHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Alertes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.alerte[\"Date\"] ?? '' }}",
+            "Type": "={{ $json.alerte[\"Type\"] == null || $json.alerte[\"Type\"] === '' ? '' : \"'\" + $json.alerte[\"Type\"] }}",
+            "ID du lead": "={{ $json.alerte[\"ID du lead\"] == null || $json.alerte[\"ID du lead\"] === '' ? '' : \"'\" + $json.alerte[\"ID du lead\"] }}",
+            "Nom": "={{ $json.alerte[\"Nom\"] == null || $json.alerte[\"Nom\"] === '' ? '' : \"'\" + $json.alerte[\"Nom\"] }}",
+            "Détail": "={{ $json.alerte[\"Détail\"] == null || $json.alerte[\"Détail\"] === '' ? '' : \"'\" + $json.alerte[\"Détail\"] }}",
+            "Extrait du mail": "={{ $json.alerte[\"Extrait du mail\"] == null || $json.alerte[\"Extrait du mail\"] === '' ? '' : \"'\" + $json.alerte[\"Extrait du mail\"] }}",
+            "ID du mail": "={{ $json.alerte[\"ID du mail\"] == null || $json.alerte[\"ID du mail\"] === '' ? '' : \"'\" + $json.alerte[\"ID du mail\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type",
+              "displayName": "Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ID du lead",
+              "displayName": "ID du lead",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nom",
+              "displayName": "Nom",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Détail",
+              "displayName": "Détail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Extrait du mail",
+              "displayName": "Extrait du mail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ID du mail",
+              "displayName": "ID du mail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "38d58e95-5d48-44f0-b954-882d4c6f2c8c",
+      "name": "Écrire dans Alertes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2000,
+        280
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "googleSheetsHP01",
+          "name": "Google Sheets (Month'immo)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Leads Habitat Presto → Google Sheets\nChaque mail de lead devient une ligne de suivi. **Aucun lead n'est jamais perdu** : complet → statut *Nouveau* ; incomplet → *À compléter* + alerte ; doublon → compteur mis à jour + alerte ; échec de l'IA → mail brut dans l'onglet *Alertes*.\n\nRéglages : ID du Google Sheet dans les 4 nœuds Sheets, label Gmail dans le déclencheur, identifiants Google.",
+        "height": 220,
+        "width": 760,
+        "color": 4
+      },
+      "id": "451ceac3-a0e7-495f-aee3-9280caba6819",
+      "name": "Note dc180459",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Déclencheurs\n**Gmail** : relève toutes les minutes les mails du label *Habitat Presto* (le vrai flux).\n**Webhook** : pour la démo, `python send_test_lead.py 1`.\nLes deux sont ramenés au même format (objet, corps, date, ID du mail).",
+        "height": 160,
+        "width": 460,
+        "color": 7
+      },
+      "id": "16b82d15-8aa2-4435-b235-e934ba10d4b3",
+      "name": "Note 7453ce6f",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Extraction IA\nMistral, température 0, avec un **schéma JSON strict** (Structured Output Parser) : null si l'info manque, rien d'inventé.\nEn cas d'échec : **1 nouvel essai**, puis sortie *erreur* → alerte.\nChanger de modèle : remplacer *Modèle Mistral* par un autre nœud de modèle (OpenAI, Gemini, Ollama…).",
+        "height": 220,
+        "width": 340,
+        "color": 7
+      },
+      "id": "e5619c0f-74fc-4c4d-8175-9694d0d843a6",
+      "name": "Note e6b7b816",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        420,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Nettoyage (code testé)\nTéléphone en +33, email en minuscules, budgets en nombres, délai en mois, ID du lead, date de réception.\n**Validation** : nom + (téléphone ou email) + type de travaux, sinon *À compléter*.\nSource : `src/nettoyage.js`.",
+        "height": 200,
+        "width": 400,
+        "color": 7
+      },
+      "id": "a14ccf7a-b1f7-452e-9d3d-5fa3878012ee",
+      "name": "Note 27da9149",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. Doublons\nOn relit le Sheet et on compare le téléphone normalisé **ou** l'email.\nDoublon → pas de 2e ligne : *Nb de demandes* +1, *Dernière demande* mise à jour, alerte.",
+        "height": 160,
+        "width": 400,
+        "color": 7
+      },
+      "id": "60d2616e-e0a4-424d-9dc4-77a53b62f5bb",
+      "name": "Note 2df169b4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. Écriture\n*Nouveau* ou *À compléter* → onglet **Leads**.\nIncomplet, doublon ou erreur IA → onglet **Alertes** (avec l'extrait du mail).",
+        "height": 140,
+        "width": 400,
+        "color": 7
+      },
+      "id": "bb6a2229-d4c6-491a-be13-c5bde676f93d",
+      "name": "Note e3c8e8d1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail : label Habitat Presto": {
+      "main": [
+        [
+          {
+            "node": "Entrée normalisée",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (démo)": {
+      "main": [
+        [
+          {
+            "node": "Entrée normalisée",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrée normalisée": {
+      "main": [
+        [
+          {
+            "node": "Extraction IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modèle Mistral": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extraction IA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format JSON strict": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Extraction IA",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraction IA": {
+      "main": [
+        [
+          {
+            "node": "Nettoyage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Préparer l'alerte erreur IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nettoyage": {
+      "main": [
+        [
+          {
+            "node": "Lire les leads existants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les leads existants": {
+      "main": [
+        [
+          {
+            "node": "Détection des doublons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Détection des doublons": {
+      "main": [
+        [
+          {
+            "node": "Doublon ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Doublon ?": {
+      "main": [
+        [
+          {
+            "node": "Mettre à jour le lead existant",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Écrire dans Alertes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ajouter le lead",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Incomplet ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incomplet ?": {
+      "main": [
+        [
+          {
+            "node": "Écrire dans Alertes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Préparer l'alerte erreur IA": {
+      "main": [
+        [
+          {
+            "node": "Écrire dans Alertes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
